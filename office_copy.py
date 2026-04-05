@@ -253,62 +253,74 @@ def ask_save_folder():
 # 메인 플로우
 # ──────────────────────────────────────────────
 
+def scan_and_select():
+    """문서를 스캔하고 선택 메뉴를 표시합니다. 문서가 없으면 재스캔 옵션을 제공합니다."""
+    while True:
+        print("\n열려있는 Office 문서를 검색 중...")
+        docs = list_all_open_docs()
+
+        choices = []
+        for doc in docs:
+            label = _APP_LABELS.get(doc["app"], doc["app"])
+            choices.append({"name": f"[{label}] {doc['name']}", "value": doc})
+
+        # 항상 재스캔/종료 옵션 추가
+        choices.append({"name": "🔄 다시 검색", "value": "__rescan__"})
+        choices.append({"name": "❌ 종료", "value": "__exit__"})
+
+        if not docs:
+            print("열려있는 Office 문서가 없습니다.")
+
+        selected = inquirer.select(
+            message="복사할 문서를 선택하세요:",
+            choices=choices,
+        ).execute()
+
+        if selected == "__exit__" or selected is None:
+            return None
+        if selected == "__rescan__":
+            continue
+        return selected
+
+
 def main():
-    print("열려있는 Office 문서를 검색 중...")
-    docs = list_all_open_docs()
+    while True:
+        selected = scan_and_select()
+        if selected is None:
+            print("종료합니다.")
+            break
 
-    if not docs:
-        print("현재 열려있는 Office 문서를 찾을 수 없습니다.")
-        print("Acrobat, Excel, PowerPoint, Word 중 하나 이상을 실행하고 문서를 열어주세요.")
-        sys.exit(1)
+        # 폴더 선택
+        print("저장할 폴더를 선택해주세요... (다이얼로그 창 확인)")
+        folder = ask_save_folder()
+        if not folder:
+            print("폴더 선택이 취소되었습니다.")
+            continue
 
-    # 문서 선택
-    choices = []
-    for doc in docs:
-        label = _APP_LABELS.get(doc["app"], doc["app"])
-        choices.append({"name": f"[{label}] {doc['name']}", "value": doc})
+        # 파일명 입력 (기본값: 원본 파일명)
+        default_name = selected["name"]
+        ext = _DEFAULT_EXT.get(selected["app"], "")
+        if ext and not default_name.lower().endswith(ext):
+            default_name = os.path.splitext(default_name)[0] + ext
 
-    selected = inquirer.select(
-        message="복사할 문서를 선택하세요:",
-        choices=choices,
-    ).execute()
+        filename = inquirer.text(
+            message="저장할 파일명을 입력하세요:",
+            default=default_name,
+        ).execute()
 
-    if selected is None:
-        print("취소되었습니다.")
-        sys.exit(0)
+        if not filename:
+            print("파일명이 입력되지 않았습니다.")
+            continue
 
-    # 폴더 선택
-    print("저장할 폴더를 선택해주세요... (다이얼로그 창 확인)")
-    folder = ask_save_folder()
-    if not folder:
-        print("폴더 선택이 취소되었습니다.")
-        sys.exit(0)
+        save_path = os.path.join(folder, filename)
 
-    # 파일명 입력 (기본값: 원본 파일명)
-    default_name = selected["name"]
-    ext = _DEFAULT_EXT.get(selected["app"], "")
-    if ext and not default_name.lower().endswith(ext):
-        default_name = os.path.splitext(default_name)[0] + ext
-
-    filename = inquirer.text(
-        message="저장할 파일명을 입력하세요:",
-        default=default_name,
-    ).execute()
-
-    if not filename:
-        print("파일명이 입력되지 않았습니다.")
-        sys.exit(0)
-
-    save_path = os.path.join(folder, filename)
-
-    # 복사 저장 실행
-    copy_func = _COPY_FUNCS[selected["app"]]
-    try:
-        result = copy_func(selected, save_path)
-        print(f"저장 완료: {result}")
-    except Exception as e:
-        print(f"저장 실패: {e}", file=sys.stderr)
-        sys.exit(1)
+        # 복사 저장 실행
+        copy_func = _COPY_FUNCS[selected["app"]]
+        try:
+            result = copy_func(selected, save_path)
+            print(f"저장 완료: {result}")
+        except Exception as e:
+            print(f"저장 실패: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
