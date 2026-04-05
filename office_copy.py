@@ -11,6 +11,7 @@ Office Document Copy Utility
 import os
 import shutil
 import sys
+import time
 import tkinter as tk
 from tkinter import filedialog
 
@@ -253,34 +254,82 @@ def ask_save_folder():
 # 메인 플로우
 # ──────────────────────────────────────────────
 
+def clear_screen():
+    """콘솔 화면을 클리어합니다."""
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+def get_default_filename(doc):
+    """문서의 기본 저장 파일명을 반환합니다."""
+    name = doc["name"]
+    ext = _DEFAULT_EXT.get(doc["app"], "")
+    if ext and not name.lower().endswith(ext):
+        name = os.path.splitext(name)[0] + ext
+    return name
+
+
 def scan_and_select():
     """문서를 스캔하고 선택 메뉴를 표시합니다. 문서가 없으면 재스캔 옵션을 제공합니다."""
     while True:
-        print("\n열려있는 Office 문서를 검색 중...")
+        clear_screen()
+        print("열려있는 Office 문서를 검색 중...")
         docs = list_all_open_docs()
+
+        if not docs:
+            print("열려있는 Office 문서가 없습니다.\n")
+            action = inquirer.select(
+                message="작업을 선택하세요:",
+                choices=[
+                    {"name": "🔄 다시 검색", "value": "__rescan__"},
+                    {"name": "❌ 종료", "value": "__exit__"},
+                ],
+            ).execute()
+            if action == "__rescan__":
+                continue
+            return None
 
         choices = []
         for doc in docs:
             label = _APP_LABELS.get(doc["app"], doc["app"])
-            choices.append({"name": f"[{label}] {doc['name']}", "value": doc})
+            choices.append({
+                "name": f"[{label}] {doc['name']}",
+                "value": doc,
+                "enabled": False,
+            })
 
-        # 항상 재스캔/종료 옵션 추가
-        choices.append({"name": "🔄 다시 검색", "value": "__rescan__"})
-        choices.append({"name": "❌ 종료", "value": "__exit__"})
-
-        if not docs:
-            print("열려있는 Office 문서가 없습니다.")
-
-        selected = inquirer.select(
-            message="복사할 문서를 선택하세요:",
+        print(f"{len(docs)}개의 문서를 찾았습니다.\n")
+        selected = inquirer.checkbox(
+            message="복사할 문서를 선택하세요 (Space: 선택, Ctrl+A: 전체선택, Enter: 확인):",
             choices=choices,
         ).execute()
 
-        if selected == "__exit__" or selected is None:
+        if not selected:
+            action = inquirer.select(
+                message="선택된 문서가 없습니다:",
+                choices=[
+                    {"name": "🔄 다시 검색", "value": "__rescan__"},
+                    {"name": "❌ 종료", "value": "__exit__"},
+                ],
+            ).execute()
+            if action == "__rescan__":
+                continue
             return None
-        if selected == "__rescan__":
-            continue
+
         return selected
+
+
+def save_docs(docs, folder):
+    """선택된 문서들을 지정 폴더에 저장합니다."""
+    for doc in docs:
+        filename = get_default_filename(doc)
+        save_path = os.path.join(folder, filename)
+        copy_func = _COPY_FUNCS[doc["app"]]
+        label = _APP_LABELS.get(doc["app"], doc["app"])
+        try:
+            result = copy_func(doc, save_path)
+            print(f"  ✅ [{label}] {filename} → {result}")
+        except Exception as e:
+            print(f"  ❌ [{label}] {filename} → 실패: {e}")
 
 
 def main():
@@ -297,30 +346,12 @@ def main():
             print("폴더 선택이 취소되었습니다.")
             continue
 
-        # 파일명 입력 (기본값: 원본 파일명)
-        default_name = selected["name"]
-        ext = _DEFAULT_EXT.get(selected["app"], "")
-        if ext and not default_name.lower().endswith(ext):
-            default_name = os.path.splitext(default_name)[0] + ext
+        # 저장 실행
+        print(f"\n{len(selected)}개 문서 저장 중...\n")
+        save_docs(selected, folder)
 
-        filename = inquirer.text(
-            message="저장할 파일명을 입력하세요:",
-            default=default_name,
-        ).execute()
-
-        if not filename:
-            print("파일명이 입력되지 않았습니다.")
-            continue
-
-        save_path = os.path.join(folder, filename)
-
-        # 복사 저장 실행
-        copy_func = _COPY_FUNCS[selected["app"]]
-        try:
-            result = copy_func(selected, save_path)
-            print(f"저장 완료: {result}")
-        except Exception as e:
-            print(f"저장 실패: {e}", file=sys.stderr)
+        print(f"\n완료! ({len(selected)}개 문서 → {folder})")
+        time.sleep(2)
 
 
 if __name__ == "__main__":
